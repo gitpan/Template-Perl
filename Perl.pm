@@ -1,108 +1,131 @@
 package Template::Perl;
 
+# Copyright 2000-2001 by Steve McKay. All rights reserved.
+#
+# This library is free software; you can redistribute it and/or
+# modify it under the same terms as Perl itself.
+
+# so our evals don't toss warnings;
+BEGIN {
+    $SIG{'__WARN__'} = sub { warn $_[0] if $WARNINGS }
+}
+
 use strict;
 use Carp;
-use vars	qw( @ISA $VERSION );
-#use base Parse::Tokens;
+use vars qw( @ISA $VERSION );
 use Parse::Tokens;
 @ISA = ('Parse::Tokens');
 
-$VERSION = 0.17;
+$VERSION = 0.21;
 
 sub new
 {
-    my( $class, $params ) = @_;
-    my $self = $class->SUPER::new;
-    $self->delimiters(['[-','-]']);	# default delimiters
-    $self->autoflush(1);			# default to no caching
-	$self->init($params);
+	my( $class, $params ) = @_;
+	my $self = $class->SUPER::new;
+	$self->delimiters( ['[-','-]'] );	# default delimiters
+	$self->init( $params );
 	$self;
 }
 
 sub init
 {
-    my( $self, $params ) = @_;
+	my( $self, $params ) = @_;
 	no strict 'refs';
 	for ( keys %$params )
 	{
 		my $ref = lc $_;
-		$self->$ref($params->{$_});
+		$self->$ref( $params->{$_} );
 	}
 	use strict;
 }
 
 sub hash
 {
-	my( $self, $hash ) = @_;
-	if ( $hash ){
-		$self->{HASH} = $hash;
-		$self->_install( $self );
+	my( $self, $val ) = @_;
+	if ( $val ){
+		$self->_uninstall( $self->{hash} ) if $self->{hash};
+		$self->{hash} = $val;
+		$self->_install( $val );
 	}
-	return $self->{HASH};
+	return $self->{hash};
 }
 
 sub package
 {
-	my( $self, $package ) = @_;
-	$self->{PACKAGE} = $package if $package;
+	my( $self, $val ) = @_;
+	$self->{package} = $val if $val;
 	# default to package main
-	return $self->{PACKAGE} || 'main';
+	return $self->{package} || 'main';
+}
+
+sub inline_errs
+{
+	my( $self, $val ) = @_;
+	$self->{inline_errs} = $val if $val;
+	return $self->{inline_errs};
 }
 
 sub file
 {
-	my( $self, $file ) = @_;
-	if( $file )
+	my( $self, $val ) = @_;
+	if( $val )
 	{
-		$self->{FILE} = $file;
-		$self->text( &_get_file( $self->{FILE} ) );
+		$self->{file} = $val;
+		$self->text( &_get_file( $self->{file} ) );
 	}
-	return $self->{FILE};
+	return $self->{file};
 }
 
 sub parsed
 {
-    my( $self ) = @_;
-	return $self->{PARSED};
+	my( $self ) = @_;
+	return $self->{parsed};
 }
 
-# overide SUPER::parse
 sub parse
 {
+	# overide SUPER::parse
 	my( $self, $params ) = @_;
-	$self->{PARSED} = undef;
+	$self->{parsed} = undef;
 	$self->init( $params );
-	return unless $self->{TEXT};
+	return unless $self->{text};
 	$self->SUPER::parse();
-	return $self->{PARSED};
+	return $self->{parsed};
 }
 
-# overide SUPER::token
 sub token
 {
+	# overide SUPER::token
+
 	my( $self, $token) = @_;
 	my $package = $self->package();
 	no strict 'vars';
-	$self->{PARSED} .= eval qq{
+	$WARNINGS = 0;
+	$self->{parsed} .= eval qq{
 		package $package;
 		$token->[1];
 	};
-	carp $@ if $@;
+	$WARNINGS = 1;
+	if( $@ ){
+		carp $@;
+		$self->{parsed} .= $@ if $self->{inline_errs};
+	}
 	use strict;
 }
 
-# overide SUPER::ether
 sub ether
 {
+	# overide SUPER::ether
+
 	my( $self, $text ) = @_;
-	$self->{PARSED} .= $text;
+	$self->{parsed} .= $text;
 }
 
-# install a given hash in a package for later use
 sub _install
 {
-	my( $self ) = @_;
-	my $hash = $self->{HASH};
+	# install a given hash in a package for later use
+
+	my( $self, $hash ) = @_;
 	$self->package( 'Safe' );		# set package name
 	no strict 'refs';
 	for( keys %{$hash} )
@@ -111,8 +134,22 @@ sub _install
 		*{"Safe::$_"} = \$hash->{$_};
 	}
 	use strict;
-	return 'Safe';
-#	die $self->package();
+	return 1;
+}
+
+sub _uninstall
+{
+	# clean up the contents of our package
+	# called prior to the installation of a new hash
+
+	my( $self, $hash ) = @_;
+	no strict 'refs';
+	for( keys %{$hash} )
+	{
+		*{"Safe::$_"} = \'';
+	}
+	use strict;
+	return 1;
 }
 
 sub _get_file
@@ -134,12 +171,14 @@ __END__
 
 =head1 NAME
 
-Template::Perl - a module to evaluate perl code embedded in text.
+Template::Perl - evaluate perl code embedded in text.
 
 =head1 SYNOPSIS
 
   use Template::Perl;
-  my $t = Template::Perl->new();
+
+  # you can any argumnets at initialization
+  my $t = Template::Perl->new({});
 
   my $template = q{
     Yo nombre es [- $name -].
@@ -152,10 +191,10 @@ Template::Perl - a module to evaluate perl code embedded in text.
 
   # parse defaults to package 'main' (unless a hash has been loaded)
   print $t->parse({
-      TEXT	=> $text
+      text	=> $text
   });
 
-  # or...use a hash ( slower, but easier to work with )
+  # or...use a hash ( slower, but MUCH easier to work with )
 
   my %hash = (
     name => 'Steve',
@@ -163,58 +202,50 @@ Template::Perl - a module to evaluate perl code embedded in text.
   );
 
   print $t->parse({
-      TEXT	=> $text,
-      HASH	=> \%hash
+      text	=> $text,
+      hash	=> \%hash
   });
 
   # ...or however you like it, as long as text and hash or package name 
- # is loaded before or when parse() is called.
+  # is loaded before or when parse() is called.
 
 =head1 DESCRIPTION
 
-C<Template::Perl> a module for evaluating perl embedded in text. The perl is evaluated under a package, or under a package built from a hash. This module was built primarily as a demonstration of C<Parse::Tokens>, but it works great.
+C<Template::Perl> a module for evaluating perl embedded in text. The perl can be evaluated under a specified package, or under a package built from a provided hash.
 
 =head1 FUNCTIONS
 
 =over 10
 
-=item hash()
+=item new()
 
-$t->hash();
+Initializes a Template::Perl object. Pass parameter as a hash reference. Optionally pass: delimiters, hash, package, text, file, inline_errs (see descriptions below).
+
+=item hash()
 
 Installs values identified by a given hash reference into a package under which to evaluate perl tokens.
 
-=item new()
+=item text()
 
-my $t = Template::Perl->new();
+Install the text to be parsed as the template.
 
-Optionally pass a hash reference of FILE, TEXT, PACKAGE, HASH, or DELIMITERS fields.
+=item file()
 
-FILE = valid path (your template) or...
+Specify a file containing the text to be parsed as the template.
 
-TEXT = block of text (your template)
+=item inline_errs()
 
-PACKAGE = name of a package (your data) or...
-
-HASH = hash reference (your data)
-
-DELIMITERS = array reference to left and right delimiters
+Specify how to handle error messages generated during the evaluation of perl tokens. a true value = inline, a flase value = ignore.
 
 =item package()
 
-$t->package('package_name');
-
-Set the package name under which to evaluate extracted perl.
+Set the package name under which to evaluate the extracted perl.
 
 =item parse()
-
-$t->parse();
 
 Runs the parser. Optionally accepts parameters as specified for new();.
 
 =item parsed();
-
-$text = $t->parsed();
 
 Returns the fully parsed and evaluated text.
 
@@ -226,7 +257,7 @@ Steve McKay, steve@colgreen.com
 
 =head1 COPYRIGHT
 
-Copyright 2000 Steve McKay. All rights reserved.
+Copyright 2000-2001 Steve McKay. All rights reserved.
 
 This library is free software; you can redistribute it and/or
 modify it under the same terms as Perl itself.
