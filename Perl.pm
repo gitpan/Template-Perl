@@ -6,9 +6,9 @@ package Template::Perl;
 # modify it under the same terms as Perl itself.
 
 # so our evals don't toss warnings;
-BEGIN {
-    $SIG{'__WARN__'} = sub { warn $_[0] if $WARNINGS }
-}
+#BEGIN {
+#    $SIG{'__WARN__'} = sub { warn $_[0] if $WARNINGS }
+#}
 
 use strict;
 use Carp;
@@ -16,13 +16,13 @@ use vars qw( @ISA $VERSION );
 use Parse::Tokens;
 @ISA = ('Parse::Tokens');
 
-$VERSION = 0.21;
+$VERSION = 0.24;
 
 sub new
 {
 	my( $class, $params ) = @_;
 	my $self = $class->SUPER::new;
-	$self->delimiters( ['[-','-]'] );	# default delimiters
+	$self->delimiters( ['<?','?>'] );	# default delimiters
 	$self->init( $params );
 	$self;
 }
@@ -31,11 +31,18 @@ sub init
 {
 	my( $self, $params ) = @_;
 	no strict 'refs';
+	my $hash;
 	for ( keys %$params )
 	{
 		my $ref = lc $_;
+		if( $_ eq 'hash' )
+		{
+			$hash = $params->{$_};
+			next;
+		}
 		$self->$ref( $params->{$_} );
 	}
+	$self->hash( $hash ) if( defined $hash );
 	use strict;
 }
 
@@ -55,7 +62,7 @@ sub package
 	my( $self, $val ) = @_;
 	$self->{package} = $val if $val;
 	# default to package main
-	return $self->{package} || 'main';
+	return $self->{package} || 'Safe';
 }
 
 sub inline_errs
@@ -126,12 +133,12 @@ sub _install
 	# install a given hash in a package for later use
 
 	my( $self, $hash ) = @_;
-	$self->package( 'Safe' );		# set package name
+	my $package = $self->package();
 	no strict 'refs';
 	for( keys %{$hash} )
 	{
 		next unless defined $hash->{$_};
-		*{"Safe::$_"} = \$hash->{$_};
+		*{$package."::$_"} = \$hash->{$_};
 	}
 	use strict;
 	return 1;
@@ -143,10 +150,11 @@ sub _uninstall
 	# called prior to the installation of a new hash
 
 	my( $self, $hash ) = @_;
+	my $package = $self->package();
 	no strict 'refs';
 	for( keys %{$hash} )
 	{
-		*{"Safe::$_"} = \'';
+		*{$package."$_"} = \'';
 	}
 	use strict;
 	return 1;
@@ -164,8 +172,6 @@ sub _get_file
 }
 
 1;
-
-
 
 __END__
 
@@ -239,7 +245,7 @@ Specify how to handle error messages generated during the evaluation of perl tok
 
 =item package()
 
-Set the package name under which to evaluate the extracted perl.
+Set the package name under which to evaluate the extracted perl. If used in concert with a hash, the package name must be set prior to installation of a hash.
 
 =item parse()
 
@@ -250,6 +256,14 @@ Runs the parser. Optionally accepts parameters as specified for new();.
 Returns the fully parsed and evaluated text.
 
 =back
+
+=head1 CHANGES
+
+0.24 - Bug Fix: Internal package cleanup now works correctly when using hashes.
+
+0.23 - Can now specify a package underwhich to install a hash (was explicitly 'Safe'). This also means that the package name must be set prior to or at the time of installation of a hash, or not at all.
+
+Changed default delimiters to '<?' and '?>' (was '[-' and '-]').
 
 =head1 AUTHOR
 

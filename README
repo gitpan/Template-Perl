@@ -1,6 +1,6 @@
 This is the Template::Perl module.
 
-Template::Perl provides perl token evaluation within the context of a text tempalte. Yes, another template module.
+Template::Perl provides perl token evaluation within the context of a text tempalate. Yes, another template module.
 
 To install the module:
 
